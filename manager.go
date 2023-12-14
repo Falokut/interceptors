@@ -7,6 +7,8 @@ import (
 
 	"github.com/Falokut/grpc_errors"
 	"github.com/felixge/httpsnoop"
+	"github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go/ext"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -90,5 +92,37 @@ func (im *InterceptorManager) RestMetrics(handler http.Handler) http.Handler {
 		status := m.Code
 		im.metr.ObserveResponseTime(status, r.Method, r.URL.Path, m.Duration.Seconds())
 		im.metr.IncHits(status, r.Method, r.URL.Path)
+	})
+}
+
+func InjectTrace(span opentracing.Span, req **http.Request) error {
+	carrier := opentracing.HTTPHeadersCarrier((*req).Header)
+	return opentracing.GlobalTracer().Inject(span.Context(), opentracing.HTTPHeaders, carrier)
+}
+
+func ExtractTrace(req *http.Request) (opentracing.SpanContext,error){
+	carrier := opentracing.HTTPHeadersCarrier(req.Header)
+	return opentracing.GlobalTracer().Extract(opentracing.HTTPHeaders, carrier)
+}
+
+var grpcGatewayTag = opentracing.Tag{Key: string(ext.Component), Value: "grpc-gateway"}
+func (im *InterceptorManager) RestTracer(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		parentSpanContext, err := opentracing.GlobalTracer().Extract(
+			opentracing.HTTPHeaders,
+			opentracing.HTTPHeadersCarrier(r.Header))
+			method := r.Method+" "+r.URL.Path
+
+		if err == nil || err == opentracing.ErrSpanContextNotFound {
+			serverSpan := opentracing.GlobalTracer().StartSpan(
+				method,
+				ext.RPCServerOption(parentSpanContext),
+				grpcGatewayTag,
+			)
+			r = r.WithContext(opentracing.ContextWithSpan(r.Context(), serverSpan))
+			defer serverSpan.Finish()
+		}
+		handler.ServeHTTP(w, r)
 	})
 }
