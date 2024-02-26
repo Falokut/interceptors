@@ -43,7 +43,7 @@ func (im *InterceptorManager) Logger(ctx context.Context, req interface{},
 	resp, err = handler(ctx, req)
 
 	deadline, ok := ctx.Deadline()
-	formattedDeadline := ""
+	formattedDeadline := "none"
 	if ok {
 		formattedDeadline = deadline.Format(time.RFC3339)
 	}
@@ -52,7 +52,7 @@ func (im *InterceptorManager) Logger(ctx context.Context, req interface{},
 		"grpc.start_time":       start.Format(time.RFC3339),
 		"grpc.request.deadline": formattedDeadline,
 		"grpc.request.metadata": md,
-		"grpc.time_ms":          time.Since(start).Milliseconds(),
+		"grpc.time":             time.Since(start),
 		"grpc.code":             status.Code(err),
 	}).Info("finished grpc unary call")
 
@@ -65,7 +65,7 @@ func (im *InterceptorManager) StreamLogger(srv any, ss grpc.ServerStream,
 	md, _ := metadata.FromIncomingContext(ss.Context())
 	err := handler(srv, ss)
 	deadline, ok := ss.Context().Deadline()
-	formattedDeadline := ""
+	formattedDeadline := "none"
 	if ok {
 		formattedDeadline = deadline.Format(time.RFC3339)
 	}
@@ -76,7 +76,7 @@ func (im *InterceptorManager) StreamLogger(srv any, ss grpc.ServerStream,
 		"grpc.start_time":                      start.Format(time.RFC3339),
 		"grpc.request.deadline":                formattedDeadline,
 		"grpc.request.metadata":                md,
-		"grpc.time_ms":                         time.Since(start).Milliseconds(),
+		"grpc.time":                            time.Since(start),
 		"grpc.code":                            status.Code(err),
 	}).Info("finished grpc streaming call")
 
@@ -110,7 +110,7 @@ func (im *InterceptorManager) RestLogger(handler http.Handler) http.Handler {
 		m := httpsnoop.CaptureMetrics(handler, w, r)
 		start := time.Now()
 		deadline, ok := r.Context().Deadline()
-		formattedDeadline := ""
+		formattedDeadline := "none"
 		if ok {
 			formattedDeadline = deadline.Format(time.RFC3339)
 		}
@@ -119,7 +119,7 @@ func (im *InterceptorManager) RestLogger(handler http.Handler) http.Handler {
 			"rest.path":             r.URL.Path,
 			"rest.start_time":       start.Format(time.RFC3339),
 			"rest.request.deadline": formattedDeadline,
-			"rest.time_ms":          time.Since(start).Milliseconds(),
+			"rest.time":             m.Duration,
 			"rest.code":             m.Code,
 		}).Info("finished rest call")
 	})
@@ -177,7 +177,7 @@ func (im *InterceptorManager) RestPanicRecover(handler http.Handler) http.Handle
 
 				im.logger.WithFields(logrus.Fields{
 					"panic": p,
-					"stack": debug.Stack(),
+					"stack": string(debug.Stack()),
 				}).Error("rest panic recovered")
 				im.metr.IncRestPanicsTotal()
 				return
@@ -195,7 +195,7 @@ func (im *InterceptorManager) GrpcUnaryServerPanicRecover(ctx context.Context, r
 		if p != nil {
 			im.logger.WithFields(logrus.Fields{
 				"panic": p,
-				"stack": debug.Stack(),
+				"stack": string(debug.Stack()),
 			}).Error("grpc unary panic caught")
 
 			im.metr.IncGrpcPanicsTotal()
@@ -213,7 +213,7 @@ func (im *InterceptorManager) GrpcStreamServerPanicRecover(srv any,
 		if p != nil {
 			im.logger.WithFields(logrus.Fields{
 				"panic": p,
-				"stack": debug.Stack(),
+				"stack": string(debug.Stack()),
 			}).Error("grpc stream panic caught")
 
 			im.metr.IncGrpcPanicsTotal()
